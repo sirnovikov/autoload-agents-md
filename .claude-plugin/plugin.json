@@ -1,0 +1,4 @@
+{
+  "name": "read-agents-md",
+  "description": "Loads AGENTS.md files from the project hierarchy into Claude's context, identical to how CLAUDE.md is loaded."
+}
