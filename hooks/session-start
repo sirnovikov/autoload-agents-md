@@ -43,7 +43,10 @@ collect_agents_files() {
     fi
 }
 
-mapfile -t agents_files < <(collect_agents_files)
+agents_files=()
+while IFS= read -r line; do
+    [[ -n "$line" ]] && agents_files+=("$line")
+done < <(collect_agents_files)
 
 # Exit silently — no AGENTS.md anywhere in the hierarchy
 if [[ ${#agents_files[@]} -eq 0 ]]; then
@@ -51,11 +54,12 @@ if [[ ${#agents_files[@]} -eq 0 ]]; then
 fi
 
 # Build context string matching the CLAUDE.md format exactly
-header="# claudeMd\nCodebase and user instructions are shown below. Be sure to adhere to these instructions. IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written."
+nl=$'\n'
+header="# claudeMd${nl}Codebase and user instructions are shown below. Be sure to adhere to these instructions. IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written."
 body=""
 for file in "${agents_files[@]}"; do
     content="$(cat "$file")"
-    body="${body}\n\nContents of ${file}:\n\n${content}"
+    body="${body}${nl}${nl}Contents of ${file} (project agent instructions):${nl}${nl}${content}"
 done
 context="${header}${body}"
 

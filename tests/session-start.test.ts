@@ -41,7 +41,7 @@ describe("session-start hook", () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     const context: string = parsed.hookSpecificOutput.additionalContext;
-    expect(context).toContain("# claudeMd");
+    expect(context).toContain("# claudeMd\n");
     expect(context).toContain("Flat Project Rules");
     expect(context).toContain("Always use tabs");
   });
