@@ -51,6 +51,7 @@ describe("session-start hook", () => {
     const parsed = JSON.parse(stdout);
     const context: string = parsed.hookSpecificOutput.additionalContext;
     expect(context).toContain("AGENTS.md");
+    expect(context).toContain("(project agent instructions):");
   });
 
   it("finds AGENTS.md in a parent directory when cwd has none", () => {
