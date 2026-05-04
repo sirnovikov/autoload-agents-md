@@ -1,5 +1,5 @@
 {
-  "name": "read-agents-md-claude-plugin",
+  "name": "autoload-agents-md",
   "module": "index.ts",
   "type": "module",
   "private": true,
