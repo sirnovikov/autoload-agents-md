@@ -1,0 +1,16 @@
+{
+  "name": "autoload-agents-md-dev",
+  "description": "Local development marketplace for autoload-agents-md plugin",
+  "owner": {
+    "name": "autoload-agents-md",
+    "email": "noreply@example.com"
+  },
+  "plugins": [
+    {
+      "name": "autoload-agents-md",
+      "description": "Loads AGENTS.md files from the project hierarchy into Claude's context, identical to how CLAUDE.md is loaded.",
+      "version": "0.1.0",
+      "source": "./"
+    }
+  ]
+}
