@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# SessionStart hook: finds AGENTS.md files in the project hierarchy and injects
+# them as additionalContext formatted identically to CLAUDE.md content.
+#
+# Walk-up search stops at $HOME (or / if HOME is unset). All AGENTS.md files
+# found are accumulated root-first, mirroring CLAUDE.md hierarchical loading.
+# If none are found the hook exits 0 with no output (silent no-op).
+
+set -euo pipefail
+
+# Escape a string for safe embedding in a JSON double-quoted value.
+# Uses bash parameter substitution (single C-level pass per replacement).
+escape_for_json() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+# Collect AGENTS.md files from $PWD up to $HOME, storing them root-first.
+collect_agents_files() {
+    local dir="$PWD"
+    local home="${HOME:-/}"
+    local -a found=()
+
+    while true; do
+        if [[ -f "${dir}/AGENTS.md" ]]; then
+            # Prepend so root entries end up first in the array
+            found=("${dir}/AGENTS.md" "${found[@]+"${found[@]}"}")
+        fi
+
+        if [[ "$dir" == "$home" || "$dir" == "/" ]]; then
+            break
+        fi
+        dir="$(dirname "$dir")"
+    done
+
+    if [[ ${#found[@]} -gt 0 ]]; then
+        printf '%s\n' "${found[@]}"
+    fi
+}
+
+mapfile -t agents_files < <(collect_agents_files)
+
+# Exit silently — no AGENTS.md anywhere in the hierarchy
+if [[ ${#agents_files[@]} -eq 0 ]]; then
+    exit 0
+fi
+
+# Build context string matching the CLAUDE.md format exactly
+header="# claudeMd\nCodebase and user instructions are shown below. Be sure to adhere to these instructions. IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written."
+body=""
+for file in "${agents_files[@]}"; do
+    content="$(cat "$file")"
+    body="${body}\n\nContents of ${file}:\n\n${content}"
+done
+context="${header}${body}"
+
+escaped_context="$(escape_for_json "$context")"
+
+# Emit platform-specific JSON.
+# Cursor sets CURSOR_PLUGIN_ROOT (may also set CLAUDE_PLUGIN_ROOT) — emit additional_context.
+# Claude Code sets only CLAUDE_PLUGIN_ROOT — emit hookSpecificOutput.
+# Emitting both causes double-injection in Claude Code, so we pick exactly one.
+if [[ -n "${CURSOR_PLUGIN_ROOT:-}" ]]; then
+    printf '{\n  "additional_context": "%s"\n}\n' "$escaped_context"
+elif [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$escaped_context"
+else
+    printf '{\n  "additional_context": "%s"\n}\n' "$escaped_context"
+fi
+
+exit 0
