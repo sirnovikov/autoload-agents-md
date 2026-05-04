@@ -1,8 +1,8 @@
 {
-  "name": "autoload-agents-md-dev",
-  "description": "Local development marketplace for autoload-agents-md plugin",
+  "name": "sirnovikov",
+  "description": "sirnovikov's Claude Code plugins",
   "owner": {
-    "name": "autoload-agents-md",
+    "name": "sirnovikov",
     "email": "noreply@example.com"
   },
   "plugins": [

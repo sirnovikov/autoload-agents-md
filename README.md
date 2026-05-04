@@ -11,8 +11,8 @@ This lets teams that use `AGENTS.md` (the convention used by OpenAI, Gemini, and
 ## Installation
 
 ```bash
-claude plugin marketplace add https://github.com/sirnovikov/autoload-agents-md/.claude-plugin/marketplace.json
-claude plugin install autoload-agents-md@autoload-agents-md-dev
+claude plugin marketplace add https://github.com/sirnovikov/autoload-agents-md
+claude plugin install autoload-agents-md@sirnovikov
 ```
 
 Restart Claude Code after installing.
@@ -46,5 +46,5 @@ bun test --dots
 
 # Install locally
 claude plugin marketplace add ./.claude-plugin/marketplace.json
-claude plugin install autoload-agents-md@autoload-agents-md-dev
+claude plugin install autoload-agents-md@sirnovikov
 ```
