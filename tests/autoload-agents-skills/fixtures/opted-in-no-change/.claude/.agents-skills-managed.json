@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "managed": [
+    { "name": "foo", "source": ".agents/skills/foo", "createdAt": "2026-05-05T07:53:21Z" }
+  ]
+}

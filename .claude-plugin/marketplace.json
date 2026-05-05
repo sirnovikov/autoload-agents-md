@@ -9,8 +9,14 @@
     {
       "name": "autoload-agents-md",
       "description": "Loads AGENTS.md files from the project hierarchy into Claude's context, identical to how CLAUDE.md is loaded.",
+      "version": "0.2.0",
+      "source": "./plugins/autoload-agents-md"
+    },
+    {
+      "name": "autoload-agents-skills",
+      "description": "Mirrors .agents/skills/ (agentskills.io spec) into .claude/skills/ via managed symlinks so they're discoverable by Claude Code's native Skill tool.",
       "version": "0.1.0",
-      "source": "./"
+      "source": "./plugins/autoload-agents-skills"
     }
   ]
 }

@@ -1,0 +1,4 @@
+{
+  "name": "autoload-agents-skills",
+  "description": "Mirrors .agents/skills/ (agentskills.io spec) into .claude/skills/ via managed symlinks so they're discoverable by Claude Code's native Skill tool."
+}

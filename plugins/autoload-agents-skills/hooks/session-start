@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+# SessionStart hook: discovers .agents/skills/ in the project hierarchy and
+# either notifies the user to opt in (if not yet enabled) or syncs managed
+# symlinks (if already opted in) and reports any changes.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+LIB_DIR="${PLUGIN_ROOT}/scripts/lib"
+
+source "${LIB_DIR}/parse-frontmatter.sh"
+source "${LIB_DIR}/manifest.sh"
+source "${LIB_DIR}/gitignore.sh"
+
+escape_for_json() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+# Walk up from $PWD to $HOME looking for the first .agents/skills/ directory.
+find_project_root() {
+    local dir="$PWD"
+    local home="${HOME:-/}"
+    while true; do
+        if [[ -d "${dir}/.agents/skills" ]]; then
+            printf '%s' "$dir"
+            return 0
+        fi
+        if [[ "$dir" == "$home" || "$dir" == "/" ]]; then
+            break
+        fi
+        dir="$(dirname "$dir")"
+    done
+    return 1
+}
+
+emit_context() {
+    local msg="$1"
+    local escaped
+    escaped="$(escape_for_json "$msg")"
+
+    if [[ -n "${CURSOR_PLUGIN_ROOT:-}" ]]; then
+        printf '{\n  "additional_context": "%s"\n}\n' "$escaped"
+    elif [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+        printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$escaped"
+    else
+        printf '{\n  "additional_context": "%s"\n}\n' "$escaped"
+    fi
+}
+
+# --- Collect valid skills from .agents/skills/ ---
+collect_valid_skills() {
+    local skills_src="$1"
+    VALID_SKILL_NAMES=()
+    VALID_SKILL_DESCS=()
+
+    for skill_dir in "${skills_src}"/*/; do
+        [[ -d "$skill_dir" ]] || continue
+        local skill_name
+        skill_name="$(basename "$skill_dir")"
+        local skill_md="${skill_dir}SKILL.md"
+        [[ -f "$skill_md" ]] || continue
+        parse_frontmatter "$skill_md" || continue
+        [[ "$SKILL_NAME" == "$skill_name" ]] || continue
+        VALID_SKILL_NAMES+=("$skill_name")
+        VALID_SKILL_DESCS+=("$SKILL_DESCRIPTION")
+    done
+}
+
+PROJECT_ROOT=""
+if ! PROJECT_ROOT="$(find_project_root)"; then
+    # No .agents/skills/ anywhere — check if we have a manifest (user may have
+    # moved skills away after enabling; still do a prune pass in that case).
+    # Walk up for manifest.
+    dir="$PWD"
+    home="${HOME:-/}"
+    while true; do
+        if [[ -f "${dir}/.claude/.agents-skills-managed.json" ]]; then
+            PROJECT_ROOT="$dir"
+            break
+        fi
+        [[ "$dir" == "$home" || "$dir" == "/" ]] && break
+        dir="$(dirname "$dir")"
+    done
+    [[ -z "$PROJECT_ROOT" ]] && exit 0
+fi
+
+SKILLS_SRC="${PROJECT_ROOT}/.agents/skills"
+MANIFEST="${PROJECT_ROOT}/.claude/.agents-skills-managed.json"
+CLAUDE_SKILLS="${PROJECT_ROOT}/.claude/skills"
+
+VALID_SKILL_NAMES=()
+VALID_SKILL_DESCS=()
+[[ -d "$SKILLS_SRC" ]] && collect_valid_skills "$SKILLS_SRC"
+
+manifest_read "$MANIFEST"
+OPTED_IN=0
+[[ -f "$MANIFEST" ]] && OPTED_IN=1
+
+# ---- Branch: not opted in ----
+if [[ $OPTED_IN -eq 0 ]]; then
+    [[ ${#VALID_SKILL_NAMES[@]} -eq 0 ]] && exit 0
+
+    count="${#VALID_SKILL_NAMES[@]}"
+    noun="skill"; [[ $count -ne 1 ]] && noun="skills"
+    list=""
+    for i in "${!VALID_SKILL_NAMES[@]}"; do
+        list="${list}"$'\n'"  - ${VALID_SKILL_NAMES[$i]}: ${VALID_SKILL_DESCS[$i]}"
+    done
+
+    msg="# agentSkills
+Found ${count} ${noun} in \`.agents/skills/\` that can be mirrored into \`.claude/skills/\`:${list}
+
+Run \`/agents-skills-enable\` to enable them for this project (one-time setup, then auto-maintained each session). Skills will be active on the next fresh Claude Code session."
+
+    emit_context "$msg"
+    exit 0
+fi
+
+# ---- Branch: opted in — sync ----
+# Compute relative prefix from CLAUDE_SKILLS to SKILLS_SRC
+compute_relative_prefix() {
+    local from_dir="$1"
+    local to_dir="$2"
+    local from="$from_dir"
+    local rel=""
+    while [[ "$from" != "/" && "$to_dir" != "$from"* ]]; do
+        from="$(dirname "$from")"
+        rel="../${rel}"
+    done
+    local suffix="${to_dir#${from}/}"
+    printf '%s%s' "$rel" "$suffix"
+}
+
+REL_PREFIX=""
+[[ -d "$SKILLS_SRC" ]] && REL_PREFIX="$(compute_relative_prefix "$CLAUDE_SKILLS" "$SKILLS_SRC")"
+
+added=()
+removed=()
+
+# Remove manifest entries whose source no longer exists
+new_names=()
+new_sources=()
+for i in "${!MANIFEST_NAMES[@]}"; do
+    n="${MANIFEST_NAMES[$i]}"
+    s="${MANIFEST_SOURCES[$i]}"
+    src_abs="${PROJECT_ROOT}/${s}"
+    if [[ ! -d "$src_abs" ]]; then
+        link="${CLAUDE_SKILLS}/${n}"
+        [[ -L "$link" ]] && rm "$link"
+        removed+=("$n")
+    else
+        new_names+=("$n")
+        new_sources+=("$s")
+    fi
+done
+
+# Add symlinks for newly discovered skills not yet in manifest
+if [[ -d "$SKILLS_SRC" && -n "$REL_PREFIX" ]]; then
+    mkdir -p "$CLAUDE_SKILLS"
+    for i in "${!VALID_SKILL_NAMES[@]}"; do
+        n="${VALID_SKILL_NAMES[$i]}"
+        already=0
+        for existing in "${new_names[@]+"${new_names[@]}"}"; do
+            [[ "$existing" == "$n" ]] && already=1 && break
+        done
+        [[ $already -eq 1 ]] && continue
+
+        link="${CLAUDE_SKILLS}/${n}"
+        rel_target="${REL_PREFIX}/${n}"
+
+        if [[ -e "$link" && ! -L "$link" ]]; then
+            continue  # real file/dir — skip silently
+        fi
+        if [[ -L "$link" ]]; then
+            # Only refresh if we own it (it was in the old manifest)
+            owned=0
+            for om in "${MANIFEST_NAMES[@]+"${MANIFEST_NAMES[@]}"}"; do
+                [[ "$om" == "$n" ]] && owned=1 && break
+            done
+            [[ $owned -eq 0 ]] && continue
+        fi
+
+        ln -sfn "$rel_target" "$link"
+        new_names+=("$n")
+        new_sources+=(".agents/skills/${n}")
+        added+=("$n")
+    done
+fi
+
+# Write updated manifest
+interleaved=()
+for i in "${!new_names[@]}"; do
+    interleaved+=("${new_names[$i]}" "${new_sources[$i]}")
+done
+manifest_write "$MANIFEST" "${interleaved[@]+"${interleaved[@]}"}"
+
+# Update gitignore
+gitignore_path="${PROJECT_ROOT}/.gitignore"
+if [[ -d "${PROJECT_ROOT}/.git" || -f "$gitignore_path" ]]; then
+    gi_entries=()
+    for n in "${new_names[@]+"${new_names[@]}"}"; do
+        gi_entries+=("/.claude/skills/${n}")
+    done
+    gi_entries+=("/.claude/.agents-skills-managed.json")
+    gitignore_update "$gitignore_path" "${gi_entries[@]+"${gi_entries[@]}"}"
+fi
+
+# Only emit output if something changed
+[[ ${#added[@]} -eq 0 && ${#removed[@]} -eq 0 ]] && exit 0
+
+msg="# agentSkills"
+if [[ ${#added[@]} -gt 0 ]]; then
+    msg="${msg}"$'\n'"Synced .agents/skills/: added ${#added[@]} skill(s):"
+    for a in "${added[@]}"; do
+        msg="${msg}"$'\n'"  + ${a}"
+    done
+fi
+if [[ ${#removed[@]} -gt 0 ]]; then
+    msg="${msg}"$'\n'"Synced .agents/skills/: removed ${#removed[@]} skill(s):"
+    for r in "${removed[@]}"; do
+        msg="${msg}"$'\n'"  - ${r}"
+    done
+fi
+msg="${msg}"$'\n'"Changes are active on the next fresh Claude Code session."
+
+emit_context "$msg"
+exit 0
