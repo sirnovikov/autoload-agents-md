@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "managed": [
+    {
+      "name": "survivor",
+      "source": ".agents/skills/survivor",
+      "createdAt": "2026-05-01T00:00:00Z"
+    },
+    {
+      "name": "ghost",
+      "source": ".agents/skills/ghost",
+      "createdAt": "2026-05-01T00:00:00Z"
+    }
+  ]
+}

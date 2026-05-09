@@ -2,9 +2,9 @@ import { describe, it, expect } from "bun:test";
 import { execSync } from "child_process";
 import { join } from "path";
 
-const HOOK_SCRIPT = join(import.meta.dir, "../hooks/session-start");
+const HOOK_SCRIPT = join(import.meta.dir, "../../plugins/autoload-agents-md/hooks/session-start");
 const FIXTURES = join(import.meta.dir, "fixtures");
-const FAKE_PLUGIN_ROOT = join(import.meta.dir, "..");
+const FAKE_PLUGIN_ROOT = join(import.meta.dir, "../../plugins/autoload-agents-md");
 
 function runHook(
   fixtureName: string,

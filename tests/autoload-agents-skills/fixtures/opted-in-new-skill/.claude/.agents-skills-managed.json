@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "managed": [
+    {
+      "name": "existing",
+      "source": ".agents/skills/existing",
+      "createdAt": "2026-05-01T00:00:00Z"
+    }
+  ]
+}
