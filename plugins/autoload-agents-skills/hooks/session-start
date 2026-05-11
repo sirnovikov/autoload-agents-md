@@ -43,6 +43,18 @@ escape_for_json() {
     printf '%s' "$s"
 }
 
+emit_context() {
+    local escaped
+    escaped="$(escape_for_json "$1")"
+    if [[ -n "${CURSOR_PLUGIN_ROOT:-}" ]]; then
+        printf '{\n  "additional_context": "%s"\n}\n' "$escaped"
+    elif [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+        printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$escaped"
+    else
+        printf '{\n  "additional_context": "%s"\n}\n' "$escaped"
+    fi
+}
+
 # Walk up from $PWD to $HOME looking for the first .agents/skills/ directory.
 find_project_root() {
     local dir="$PWD"
@@ -225,6 +237,9 @@ if [[ -d "$SKILLS_SRC" && -n "$REL_PREFIX" ]]; then
     done
 fi
 
+# Nothing changed — skip manifest/gitignore writes and exit silently
+[[ ${#added[@]} -eq 0 && ${#removed[@]} -eq 0 ]] && exit 0
+
 # Write updated manifest
 interleaved=()
 for i in "${!new_names[@]}"; do
@@ -242,9 +257,6 @@ if [[ -d "${PROJECT_ROOT}/.git" || -f "$gitignore_path" ]]; then
     gi_entries+=("/.claude/.agents-skills-managed.json")
     gitignore_update "$gitignore_path" "${gi_entries[@]+"${gi_entries[@]}"}"
 fi
-
-# Only emit output if something changed
-[[ ${#added[@]} -eq 0 && ${#removed[@]} -eq 0 ]] && exit 0
 
 msg="# agentSkills"
 if [[ ${#added[@]} -gt 0 ]]; then
