@@ -2,6 +2,13 @@
 # SessionStart hook: discovers .agents/skills/ in the project hierarchy and
 # either notifies the user to opt in (if not yet enabled) or syncs managed
 # symlinks (if already opted in) and reports any changes.
+#
+# Worktree inheritance: if the current directory is a linked git worktree and
+# the main repo is opted in, this worktree is treated as opted in automatically.
+#
+# Stable bin: registers ~/.claude/bin/agents-skills-setup -> enable.sh so that
+# pre-session scripts (e.g. bun run worktree) can call it without knowing the
+# plugin cache path.
 
 set -euo pipefail
 
@@ -12,6 +19,19 @@ LIB_DIR="${PLUGIN_ROOT}/scripts/lib"
 source "${LIB_DIR}/parse-frontmatter.sh"
 source "${LIB_DIR}/manifest.sh"
 source "${LIB_DIR}/gitignore.sh"
+
+# Register stable bin entry point so bun run worktree can call enable.sh without
+# knowing the versioned plugin cache path.
+register_bin() {
+    local bin_dir="${HOME}/.claude/bin"
+    local bin_link="${bin_dir}/agents-skills-setup"
+    local enable_script="${PLUGIN_ROOT}/scripts/enable.sh"
+    mkdir -p "$bin_dir"
+    if [[ ! -L "$bin_link" ]] || [[ "$(readlink "$bin_link")" != "$enable_script" ]]; then
+        ln -sfn "$enable_script" "$bin_link"
+    fi
+}
+register_bin
 
 escape_for_json() {
     local s="$1"
@@ -40,17 +60,16 @@ find_project_root() {
     return 1
 }
 
-emit_context() {
-    local msg="$1"
-    local escaped
-    escaped="$(escape_for_json "$msg")"
-
-    if [[ -n "${CURSOR_PLUGIN_ROOT:-}" ]]; then
-        printf '{\n  "additional_context": "%s"\n}\n' "$escaped"
-    elif [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
-        printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$escaped"
-    else
-        printf '{\n  "additional_context": "%s"\n}\n' "$escaped"
+# If $1 is a linked git worktree, print the main repo root. Otherwise print nothing.
+find_main_repo() {
+    local project_root="$1"
+    local git_common_dir
+    git_common_dir="$(git -C "$project_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+    local git_dir="${project_root}/.git"
+    # In a linked worktree the common dir points to the main repo's .git,
+    # which is NOT the same as <project_root>/.git.
+    if [[ "$git_common_dir" != "$git_dir" && "$git_common_dir" != "$git_dir/" ]]; then
+        dirname "$git_common_dir"
     fi
 }
 
@@ -77,7 +96,6 @@ PROJECT_ROOT=""
 if ! PROJECT_ROOT="$(find_project_root)"; then
     # No .agents/skills/ anywhere — check if we have a manifest (user may have
     # moved skills away after enabling; still do a prune pass in that case).
-    # Walk up for manifest.
     dir="$PWD"
     home="${HOME:-/}"
     while true; do
@@ -102,6 +120,19 @@ VALID_SKILL_DESCS=()
 manifest_read "$MANIFEST"
 OPTED_IN=0
 [[ -f "$MANIFEST" ]] && OPTED_IN=1
+
+# Worktree inheritance: if not locally opted in, check whether the main repo is.
+# This means running /agents-skills-enable once in the main repo is enough —
+# all linked worktrees are automatically opted in on their next session.
+if [[ $OPTED_IN -eq 0 ]]; then
+    main_repo="$(find_main_repo "$PROJECT_ROOT")"
+    if [[ -n "$main_repo" && -f "${main_repo}/.claude/.agents-skills-managed.json" ]]; then
+        OPTED_IN=1
+        # Don't pre-read the main manifest — we build a fresh local one below.
+        MANIFEST_NAMES=()
+        MANIFEST_SOURCES=()
+    fi
+fi
 
 # ---- Branch: not opted in ----
 if [[ $OPTED_IN -eq 0 ]]; then

@@ -7,7 +7,11 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Dereference symlinks so this works when called via ~/.claude/bin/agents-skills-setup
+_self="$0"
+while [[ -L "$_self" ]]; do _self="$(readlink "$_self")"; done
+SCRIPT_DIR="$(cd "$(dirname "$_self")" && pwd)"
+unset _self
 LIB_DIR="${SCRIPT_DIR}/lib"
 source "${LIB_DIR}/parse-frontmatter.sh"
 source "${LIB_DIR}/manifest.sh"
